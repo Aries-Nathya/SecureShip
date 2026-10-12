@@ -1,3 +1,4 @@
+
 name: SecureShip CI
 
 on:
@@ -11,18 +12,21 @@ permissions:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    name: Backend Tests
+    runs-on: ubuntu-24.04
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
 
-      - name: Install backend dependencies
+      - name: Install dependencies
         working-directory: backend
         run: |
           python -m pip install --upgrade pip
@@ -30,4 +34,4 @@ jobs:
 
       - name: Run backend tests
         working-directory: backend
-        run: pytest -q
+        run: pytest -v
