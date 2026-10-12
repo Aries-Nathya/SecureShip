@@ -1,12 +1,13 @@
 from contextlib import asynccontextmanager
+import os
 from typing import List, Optional
-from fastapi import FastAPI, Depends, HTTPException, Query, status
+from fastapi import FastAPI, Depends, HTTPException, Query, Response, status
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 
 from .database import engine, Base, get_db
-from .models import Application, PipelineRun, ScanRun, Finding, DependencyUpdate, Deployment
+from .models import Application, PipelineRun, ScanRun, Finding, DependencyUpdate, Deployment, utc_now
 from . import schemas
 
 
@@ -38,11 +39,20 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+CORS_ALLOWED_ORIGINS = [
+    origin.strip().rstrip("/")
+    for origin in os.getenv(
+        "SECURESHIP_CORS_ORIGINS",
+        "http://localhost:5173,http://127.0.0.1:5173",
+    ).split(",")
+    if origin.strip()
+]
+
 # Enable CORS for frontend requests
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
+    allow_origins=CORS_ALLOWED_ORIGINS,
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -135,6 +145,27 @@ def create_pipeline_run(run_in: schemas.PipelineRunCreate, db: Session = Depends
     return pipeline_run
 
 
+@app.patch("/api/pipelines/{pipeline_id}", response_model=schemas.PipelineRunResponse)
+def finish_pipeline_run(
+    pipeline_id: int,
+    status_in: schemas.PipelineRunStatusUpdate,
+    db: Session = Depends(get_db),
+):
+    pipeline_run = db.query(PipelineRun).filter(PipelineRun.id == pipeline_id).first()
+    if not pipeline_run:
+        raise HTTPException(status_code=404, detail="Pipeline run not found")
+    if pipeline_run.completed_at is not None:
+        if pipeline_run.status != status_in.status:
+            raise HTTPException(status_code=409, detail="Pipeline run is already complete")
+        return pipeline_run
+
+    pipeline_run.status = status_in.status
+    pipeline_run.completed_at = utc_now()
+    db.commit()
+    db.refresh(pipeline_run)
+    return pipeline_run
+
+
 # Scans Endpoints
 @app.get("/api/scans", response_model=List[schemas.ScanRunResponse])
 def get_scans(
@@ -177,10 +208,31 @@ def get_findings(
 
 
 @app.post("/api/findings", response_model=schemas.FindingResponse, status_code=status.HTTP_201_CREATED)
-def create_finding(finding_in: schemas.FindingCreate, db: Session = Depends(get_db)):
+def create_finding(
+    finding_in: schemas.FindingCreate,
+    response: Response,
+    db: Session = Depends(get_db),
+):
     scan = db.query(ScanRun).filter(ScanRun.id == finding_in.scan_run_id).first()
     if not scan:
         raise HTTPException(status_code=404, detail="Scan run not found")
+
+    # Make retries idempotent within a scan. Re-running a scanner creates a new
+    # scan_run_id, so historical results remain distinct across separate runs.
+    existing = (
+        db.query(Finding)
+        .filter(
+            Finding.scan_run_id == finding_in.scan_run_id,
+            Finding.rule_id == finding_in.rule_id,
+            Finding.file_or_package == finding_in.file_or_package,
+            Finding.line_number == finding_in.line_number,
+        )
+        .first()
+    )
+    if existing:
+        response.status_code = status.HTTP_200_OK
+        return existing
+
     finding = Finding(**finding_in.model_dump())
     db.add(finding)
     # Increment scan finding count

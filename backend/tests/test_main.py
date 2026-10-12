@@ -43,6 +43,29 @@ def test_health():
     assert response.json()["status"] == "healthy"
 
 
+@pytest.mark.parametrize(
+    "origin", ["http://localhost:5173", "http://127.0.0.1:5173"]
+)
+def test_cors_allows_frontend_origins(origin):
+    response = client.get("/health", headers={"Origin": origin})
+
+    assert response.status_code == 200
+    assert response.headers["access-control-allow-origin"] == origin
+
+
+def test_cors_rejects_unlisted_origins():
+    response = client.options(
+        "/health",
+        headers={
+            "Origin": "https://untrusted.example",
+            "Access-Control-Request-Method": "GET",
+        },
+    )
+
+    assert response.status_code == 400
+    assert "access-control-allow-origin" not in response.headers
+
+
 def test_root():
     response = client.get("/")
     assert response.status_code == 200
@@ -125,3 +148,131 @@ def test_pipelines_and_scans_flow():
     overview_data = overview.json()
     assert overview_data["total_findings"] == 1
     assert overview_data["high_findings"] == 1
+
+
+def test_finding_submission_is_idempotent_within_scan():
+    app_response = client.post(
+        "/api/applications",
+        json={
+            "name": "Finding Idempotency Service",
+            "repo_url": "https://github.com/secureship/finding-idempotency",
+            "default_branch": "main",
+        },
+    )
+    pipeline_response = client.post(
+        "/api/pipelines",
+        json={
+            "application_id": app_response.json()["id"],
+            "provider": "test",
+            "commit_id": "finding-idempotency-test",
+            "branch": "test",
+            "status": "running",
+        },
+    )
+    scan_response = client.post(
+        "/api/scans",
+        json={
+            "pipeline_run_id": pipeline_response.json()["id"],
+            "scanner": "test-scanner",
+            "status": "success",
+            "findings_count": 0,
+            "report_location": "test-only",
+        },
+    )
+    finding_payload = {
+        "scan_run_id": scan_response.json()["id"],
+        "rule_id": "TEST-DUPLICATE",
+        "severity": "low",
+        "title": "Synthetic idempotency test finding",
+        "description": "Test-only record.",
+        "file_or_package": "test-only.py",
+        "line_number": 7,
+        "remediation": "No action required.",
+        "status": "open",
+    }
+
+    first = client.post("/api/findings", json=finding_payload)
+    retry = client.post("/api/findings", json=finding_payload)
+
+    assert first.status_code == 201
+    assert retry.status_code == 200
+    assert retry.json()["id"] == first.json()["id"]
+    assert client.get("/api/findings").json() == [first.json()]
+    assert client.get("/api/scans").json()[0]["findings_count"] == 1
+
+
+@pytest.mark.parametrize("final_status", ["success", "failed"])
+def test_pipeline_status_update_completes_run(final_status):
+    app_resp = client.post(
+        "/api/applications",
+        json={
+            "name": f"Status Service {final_status}",
+            "repo_url": "https://github.com/secureship/status-service",
+            "default_branch": "main",
+        },
+    )
+    pipeline_resp = client.post(
+        "/api/pipelines",
+        json={
+            "application_id": app_resp.json()["id"],
+            "provider": "test",
+            "commit_id": "status-test",
+            "branch": "test",
+            "status": "running",
+        },
+    )
+    pipeline_id = pipeline_resp.json()["id"]
+
+    response = client.patch(
+        f"/api/pipelines/{pipeline_id}", json={"status": final_status}
+    )
+
+    assert response.status_code == 200
+    completed = response.json()
+    assert completed["status"] == final_status
+    assert completed["completed_at"] is not None
+
+    # Repeating the same terminal update is safe and preserves the original timestamp.
+    repeated = client.patch(
+        f"/api/pipelines/{pipeline_id}", json={"status": final_status}
+    )
+    assert repeated.status_code == 200
+    assert repeated.json()["completed_at"] == completed["completed_at"]
+
+    conflicting = "failed" if final_status == "success" else "success"
+    conflict = client.patch(
+        f"/api/pipelines/{pipeline_id}", json={"status": conflicting}
+    )
+    assert conflict.status_code == 409
+
+
+def test_pipeline_status_update_rejects_nonterminal_status_and_unknown_pipeline():
+    app_resp = client.post(
+        "/api/applications",
+        json={
+            "name": "Invalid Status Service",
+            "repo_url": "https://github.com/secureship/invalid-status-service",
+            "default_branch": "main",
+        },
+    )
+    pipeline_resp = client.post(
+        "/api/pipelines",
+        json={
+            "application_id": app_resp.json()["id"],
+            "provider": "test",
+            "commit_id": "invalid-status-test",
+            "branch": "test",
+            "status": "running",
+        },
+    )
+
+    invalid_status = client.patch(
+        f"/api/pipelines/{pipeline_resp.json()['id']}",
+        json={"status": "running"},
+    )
+    missing_pipeline = client.patch(
+        "/api/pipelines/999999", json={"status": "success"}
+    )
+
+    assert invalid_status.status_code == 422
+    assert missing_pipeline.status_code == 404

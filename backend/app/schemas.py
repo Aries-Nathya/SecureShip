@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Optional, List
+from typing import Optional, List, Literal
 from pydantic import BaseModel, ConfigDict
 
 
@@ -73,6 +73,10 @@ class PipelineRunBase(BaseModel):
 
 class PipelineRunCreate(PipelineRunBase):
     application_id: int
+
+
+class PipelineRunStatusUpdate(BaseModel):
+    status: Literal["success", "failed"]
 
 
 class PipelineRunResponse(PipelineRunBase):

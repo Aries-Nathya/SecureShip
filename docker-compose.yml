@@ -7,7 +7,9 @@ services:
     ports:
       - "8000:8000"
     environment:
-      - DATABASE_URL=sqlite:///./secureship.db
+      - DATABASE_URL=sqlite:////app/data/secureship.db
+    volumes:
+      - secureship_data:/app/data
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
@@ -25,3 +27,8 @@ services:
     depends_on:
       - backend
     restart: unless-stopped
+
+volumes:
+  secureship_data:
+    name: secureship_data
+    external: true
