@@ -1,0 +1,28 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.coverage
+
+# Node
+node_modules/
+dist/
+
+# Environment and secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Generated reports and local data
+tests/reports/*
+!tests/reports/.gitkeep
+*.db
+*.sqlite3
+
+# IDE and operating system
+.DS_Store
+.idea/
+.vscode/
