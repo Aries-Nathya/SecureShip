@@ -1,159 +1,103 @@
-# SecureShip — Automated DevSecOps Platform
+# SecureShip
 
-**SecureShip** is an end-to-end DevSecOps platform designed for continuous vulnerability detection, automated dependency management, policy-driven quality gating, and secure multi-cloud / container deployment.
+SecureShip is a small DevSecOps dashboard for running Python dependency, source-code, and secret scans; evaluating their results against a policy; and recording pipelines, scans, findings, and deployment data in a FastAPI service.
 
----
+## Architecture
 
-## 1. System Architecture & Workflow
+- **Frontend:** React/Vite application, served by the frontend container on `http://localhost:5173`.
+- **API:** FastAPI and SQLAlchemy, served on `http://127.0.0.1:8000`; interactive docs are at `/docs` and health is at `/health`.
+- **Database:** SQLite. Docker Compose mounts the external named volume `secureship_data` at `/app/data`, with the database at `/app/data/secureship.db`.
+- **Scanner orchestrator:** `security/scripts/run_scans.py` executes scanners, normalizes findings, evaluates policy, publishes records to the API, then records a terminal pipeline state.
+- **CI:** `.github/workflows/ci.yml` installs `backend/requirements.txt` on a fresh GitHub-hosted Python 3.12 runner and runs backend pytest on pushes and pull requests to `main`.
 
-```
-+---------------------------------------------------------------------------------------------------+
-|                                      1. Developer Git Commit                                      |
-|                               (Python / FastAPI App, Branching)                                    |
-+-------------------------------------------------+-------------------------------------------------+
-                                                  |
-                                                  v
-+---------------------------------------------------------------------------------------------------+
-|                                  2. Multi-CI/CD Orchestration                                     |
-|           GitHub Actions   ·   Jenkins Pipeline   ·   GitLab CI/CD   ·   Azure Pipelines           |
-+-------------------------------------------------+-------------------------------------------------+
-                                                  |
-                                                  v
-+---------------------------------------------------------------------------------------------------+
-|                                    3. Automated Code & API Tests                                  |
-|                            Pytest Unit Tests   ·   Newman Postman API Tests                       |
-+-------------------------------------------------+-------------------------------------------------+
-                                                  |
-                                                  v
-+---------------------------------------------------------------------------------------------------+
-|                                    4. DevSecOps Security Checks                                   |
-|               Gitleaks (Secrets)  ·  Semgrep (SAST)  ·  Trivy / pip-audit (Dependencies)          |
-+-------------------------------------------------+-------------------------------------------------+
-                                                  |
-                                                  v
-                                     [ Policy Evaluation Gating ]
-                                    /                            \
-                     [ Critical / High Found ]            [ Clean / Approved ]
-                                |                                  |
-                                v                                  v
-                       Block Deployment               5. Build & Scan Container Image
-                     Report to Dashboard                   (Docker / Versioning)
-                                                                   |
-                                                                   v
-                                                      6. Multi-Target Deployment
-                                                    Docker Compose / Helm & K8s
-                                                                   |
-                                                                   v
-                                                      7. Telemetry & Continuous Update
-                                                    Prometheus · Grafana · Renovate
-```
+The API permits the local frontend origins `http://localhost:5173` and `http://127.0.0.1:5173` by default. Set `SECURESHIP_CORS_ORIGINS` to a comma-separated allowlist when using different frontend origins.
 
----
+## Security policy and scanner scope
 
-## 2. CI/CD Engines Comparison
+The policy is in [`security_policy.json`](security/policies/security_policy.json). It blocks detected secrets, critical/high dependency findings, critical/high SAST findings, and any unknown finding severity. The maximum allowed critical and high finding counts are both zero. Medium, low, and informational findings are recorded but do not currently fail the policy. Scanner execution failures or unavailable required scanners fail the overall run.
 
-| CI/CD Tool | Configuration | Execution Model | SecureShip Role |
-| :--- | :--- | :--- | :--- |
-| **GitHub Actions** | `.github/workflows/ci.yml` | Cloud / Hosted Runner | Primary PR checks, automated gating, security scanning |
-| **Jenkins** | `Jenkinsfile` | Declarative Pipeline (Self-hosted) | Local cluster CI execution, artifact retention |
-| **GitLab CI/CD** | `.gitlab-ci.yml` | Staged container jobs | Multi-stage image validation and security reports |
-| **Azure Pipelines** | `azure-pipelines.yml` | Microsoft Azure DevOps Hosted | Enterprise cloud CI/CD compliance workflow |
+The current orchestrator scans these targets:
 
----
+| Scanner | Target and scope |
+| --- | --- |
+| pip-audit | Dependencies declared by `backend/requirements.txt` (not every package installed in an arbitrary environment) |
+| Gitleaks | The working tree directory; this does not scan Git history |
+| Semgrep | `backend/app/` using the `p/default` ruleset |
 
-## 3. Directory Layout
+Reports contain normalized findings. The orchestrator avoids writing raw Gitleaks matches or Semgrep source snippets, which could contain secrets. Scanner results cover only the configured targets and rules; zero findings do **not** prove the whole application is secure.
 
-```
-secureship/
-├── .github/workflows/          # GitHub Actions CI definitions
-├── .gitlab-ci.yml              # GitLab CI/CD pipeline
-├── Jenkinsfile                 # Jenkins declarative pipeline
-├── azure-pipelines.yml         # Azure Pipelines configuration
-├── backend/
-│   ├── app/
-│   │   ├── main.py             # FastAPI entrypoint & Prometheus instrumentator
-│   │   ├── database.py         # SQLAlchemy engine & session factory
-│   │   ├── models.py           # Applications, Pipelines, Scans, Findings, Deployments
-│   │   └── schemas.py          # Pydantic validation schemas
-│   ├── tests/
-│   │   └── test_main.py        # Pytest test suite with StaticPool isolation
-│   ├── Dockerfile              # Backend container definition
-│   └── requirements.txt        # Python dependency manifest
-├── frontend/
-│   ├── src/
-│   │   ├── App.jsx             # React DevSecOps 7-section Dashboard
-│   │   └── index.css           # Modern theme & component styling
-│   ├── Dockerfile              # Multi-stage production container build
-│   └── package.json            # React & Lucide icons manifest
-├── security/
-│   ├── policies/
-│   │   ├── README.md           # Security gating thresholds & policies
-│   │   └── security_policy.json# Machine-readable evaluation rules
-│   └── scripts/
-│       └── run_scans.py        # SAST, secret, and vuln scanner orchestrator
-├── infra/
-│   ├── terraform/              # Infrastructure as Code (Local & Azure)
-│   ├── ansible/                # Configuration management & Vault encryption
-│   └── packer/                 # Reusable machine image build automation
-├── k8s/                        # Kubernetes Deployments, Services, ConfigMaps
-├── helm/secureship/            # Helm packaging chart
-├── monitoring/
-│   ├── prometheus/             # Prometheus scraping configuration
-│   └── grafana/                # Pre-built DevSecOps telemetry dashboard
-├── tests/
-│   ├── postman/                # Postman API test collection
-│   ├── reports/                # Standardized JSON scan outputs
-│   └── run_scenarios.py        # 6 DevSecOps acceptance scenarios suite
-└── renovate.json               # Renovate automated dependency update bot config
-```
+## Local development
 
----
+### Backend
 
-## 4. Quickstart Guide (Local Execution)
-
-### 1. Run the Backend (FastAPI)
 ```bash
 cd backend
 python3 -m venv .venv
 source .venv/bin/activate
-pip install -r requirements.txt
-uvicorn app.main:app --reload --port 8000
+python -m pip install -r requirements.txt
+uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 ```
-- API Docs: `http://localhost:8000/docs`
-- Health Endpoint: `http://localhost:8000/health`
-- Prometheus Metrics: `http://localhost:8000/metrics`
 
-### 2. Run the React Dashboard
+### Frontend
+
+In another terminal:
+
 ```bash
 cd frontend
 npm install
 npm run dev
 ```
-Open `http://localhost:5173` to explore the dashboard.
 
-### 3. Run Automated Tests
+Open `http://localhost:5173`. The frontend defaults to the API at `http://127.0.0.1:8000`.
+
+## Docker Compose
+
+The Compose file expects the named volume to exist because it is declared external. Create it once on a fresh Docker host, then start the services:
+
+```bash
+docker volume create secureship_data
+docker compose up --build -d
+docker compose ps
+```
+
+Back up the database before replacing containers or changing storage configuration. The named volume persists the database across backend container recreation; it is not a substitute for an external backup.
+
+## Backend checks
+
 ```bash
 cd backend
-pytest -v
+python -m pip install -r requirements.txt
+python -m pip check
+python -m pytest -v
 ```
 
-### 4. Run the DevSecOps Security Scanner
-```bash
-python3 security/scripts/run_scans.py
+At the final verification snapshot on 2026-10-12, all 11 backend tests passed and `pip check` reported no broken requirements. One existing Starlette deprecation warning was reported. The GitHub Actions workflow is configured as described above; this local result alone does not establish the status of a particular hosted Actions run.
+
+## Security scans
+
+The scanner requires `pip-audit`, `gitleaks`, and `semgrep` to be available. In the verified development setup, Semgrep was isolated from the backend virtual environment. Run the scanner only when `SECURESHIP_API_URL` points to the database intended to receive the records. The default is the live local API at `http://127.0.0.1:8000`.
+
+For a safe isolated run, follow [`docs/DEMO_GUIDE.md`](docs/DEMO_GUIDE.md), which starts a temporary API/database and directs reports to `/tmp`. Do not use the default API target for a demonstration unless you intend to add records to the dashboard database.
+
+## Verification snapshot and known data
+
+On 2026-10-12, a full scanner run against an isolated SQLite database completed successfully: pip-audit audited 54 declared dependencies, Gitleaks completed, and Semgrep completed against `backend/app/`; none reported findings in those configured scopes, and the policy passed. An earlier Semgrep run identified a medium-severity wildcard CORS issue; the CORS configuration was then restricted and the scoped check no longer reported that issue. These results describe that snapshot, not a guarantee about later source or dependency changes.
+
+The restored live dashboard database contains historical records: 1 application, 9 pipeline runs, 13 scan runs, 4 findings, 2 dependency updates, and 4 deployments. The 9 historical pipelines include 6 marked failed and 3 still marked running, with no completion timestamps. They predate the terminal-status implementation and were left intact rather than rewritten. The isolated successful scan is separate from these dashboard records.
+
+For the reproducible demonstration flow, including a clearly labeled synthetic policy failure that writes only to the isolated database, see [`docs/DEMO_GUIDE.md`](docs/DEMO_GUIDE.md). For a research/project report structure and draft abstract, see [`docs/PROJECT_REPORT_OUTLINE.md`](docs/PROJECT_REPORT_OUTLINE.md).
+
+## Repository areas
+
+```text
+backend/                   FastAPI app, SQLAlchemy models, and backend tests
+frontend/                  React dashboard
+security/policies/         Machine-readable security policy and policy notes
+security/scripts/           Scanner orchestration
+.github/workflows/          GitHub Actions backend CI
+infra/, k8s/, helm/,        Infrastructure and deployment configurations
+monitoring/                  Monitoring configurations
+docs/                        Demonstration and project-report documentation
 ```
 
-### 5. Run All 6 Acceptance Scenarios
-```bash
-python3 tests/run_scenarios.py
-```
-
----
-
-## 5. Acceptance Checklist Status
-
-- [x] **Healthy Application**: Passes health endpoints and active deployment validation.
-- [x] **Failing Unit Test**: Pipeline rejects broken code and aborts promotion.
-- [x] **Detected Test Secret**: Gitleaks detection blocks commit with Critical violation.
-- [x] **Vulnerable Dependency**: Trivy / pip-audit identifies CVE and blocks release.
-- [x] **Dependency Update**: Renovate proposes automated package upgrades for verification.
-- [x] **Unhealthy Deployment**: Automated probe flags failing pod and displays on dashboard.
+Infrastructure and CI configuration files outside the verified local Compose/backend workflow are project artifacts; their presence alone should not be described as proof of a working integration.
