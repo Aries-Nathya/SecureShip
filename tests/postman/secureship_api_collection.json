@@ -1,0 +1,69 @@
+{
+  "info": {
+    "name": "SecureShip API Automated Tests",
+    "description": "Postman/Newman collection for validating SecureShip API endpoints",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Health Check",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "http://127.0.0.1:8000/health",
+          "protocol": "http",
+          "host": ["127", "0", "0", "1"],
+          "port": "8000",
+          "path": ["health"]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Get Overview",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "http://127.0.0.1:8000/api/overview",
+          "protocol": "http",
+          "host": ["127", "0", "0", "1"],
+          "port": "8000",
+          "path": ["api", "overview"]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Get Applications",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "http://127.0.0.1:8000/api/applications",
+          "protocol": "http",
+          "host": ["127", "0", "0", "1"],
+          "port": "8000",
+          "path": ["api", "applications"]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Get Security Findings",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "http://127.0.0.1:8000/api/findings",
+          "protocol": "http",
+          "host": ["127", "0", "0", "1"],
+          "port": "8000",
+          "path": ["api", "findings"]
+        }
+      },
+      "response": []
+    }
+  ]
+}

@@ -1,0 +1,14 @@
+{
+  "policy_name": "SecureShip Standard Gating",
+  "version": "1.0.0",
+  "rules": {
+    "block_on_secrets": true,
+    "block_on_critical_vulnerabilities": true,
+    "block_on_high_vulnerabilities": true,
+    "block_on_sast_critical": true,
+    "block_on_sast_high": true,
+    "max_allowed_critical_findings": 0,
+    "max_allowed_high_findings": 0,
+    "allowed_exceptions": []
+  }
+}

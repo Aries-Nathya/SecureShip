@@ -1,0 +1,47 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: secureship-backend
+  labels:
+    app: secureship
+    component: backend
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: secureship
+      component: backend
+  template:
+    metadata:
+      labels:
+        app: secureship
+        component: backend
+    spec:
+      containers:
+        - name: backend
+          image: secureship-backend:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8000
+          envFrom:
+            - configMapRef:
+                name: secureship-config
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "100m"
+            limits:
+              memory: "256Mi"
+              cpu: "500m"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 5
+            periodSeconds: 10

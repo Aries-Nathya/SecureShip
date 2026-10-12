@@ -1,0 +1,22 @@
+---
+- name: SecureShip Server Environment Setup
+  hosts: all
+  gather_facts: yes
+  tasks:
+    - name: Ping and verify host connectivity
+      ansible.builtin.ping:
+
+    - name: Display host architecture and OS details
+      ansible.builtin.debug:
+        msg: "Target OS: {{ ansible_distribution | default(ansible_os_family) }}, Kernel: {{ ansible_kernel }}"
+
+    - name: Ensure deployment directory structure exists
+      ansible.builtin.file:
+        path: "{{ deploy_dir }}"
+        state: directory
+        mode: '0755'
+      ignore_errors: yes
+
+    - name: Verify application environment configuration
+      ansible.builtin.debug:
+        msg: "Configuring {{ app_name }} on port {{ app_port }} for user {{ app_user }}"

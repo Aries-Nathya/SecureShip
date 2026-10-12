@@ -47,6 +47,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Instrument with Prometheus metrics at /metrics
+from prometheus_fastapi_instrumentator import Instrumentator
+Instrumentator().instrument(app).expose(app)
+
 
 @app.get("/")
 def root():
