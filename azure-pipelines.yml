@@ -1,0 +1,20 @@
+trigger:
+  - main
+
+pr:
+  - main
+
+pool:
+  vmImage: ubuntu-latest
+
+steps:
+  - task: UsePythonVersion@0
+    inputs:
+      versionSpec: "3.12"
+
+  - script: |
+      python -m pip install --upgrade pip
+      pip install -r backend/requirements.txt
+      cd backend
+      pytest -q
+    displayName: "Install dependencies and run tests"
